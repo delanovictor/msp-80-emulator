@@ -77,7 +77,6 @@ int main(int argc, char* argsv[]){
         clk_cycles++;
         //DECODE
         uint8_t byte = ram[pc];
-        // printf("%#4x\n", byte);
         curr_instr = instruction_table[byte];
         affected_flags = instruction_flag_mask_table[curr_instr.type];
         affected_register = REG_A;
