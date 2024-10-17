@@ -60,7 +60,7 @@ int main(int argc, char* argsv[]){
     initialize_ram();
     
     print_ram(16);
-    // print_source_code();
+    print_source_code();
     
     int arg_count = 0;
 
