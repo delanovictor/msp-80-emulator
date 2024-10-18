@@ -8,3 +8,4 @@ ADD B
 MOV B,D
 DCR C
 JNZ 08
+HLT

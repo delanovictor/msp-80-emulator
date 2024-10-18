@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -6,23 +5,18 @@
 #include <sys/types.h>
 #include "tokens.c"
 
-// struct Token {
-//     char* input;
-//     int output;
-// }
+struct Instruction* get_instruction(char* token){
+    for(int i = 0; i < NUMBER_OF_INSTRUCTIONS; i++){
+        if(strlen(INSTRUCTIONS[i].mnemonic) != strlen(token)){
+            continue;
+        }
 
-// struct Token[] tokens = {
-//     {.input: "MOV", .output 0x3E},
-// }
-
-char* get_instruction_code(char* token){
-    for(int i = 0; i < NUMBER_OF_TOKENS; i++){
-        if(strncmp(token, TOKENS[i].token, strlen(token)) == 0){
-            return TOKENS[i].code;
+        if(strncmp(token, INSTRUCTIONS[i].mnemonic, strlen(INSTRUCTIONS[i].mnemonic)) == 0){
+            return &INSTRUCTIONS[i];
         }
     }
 
-    printf("Token não existente: %s\n", token);
+    // printf("Instrução não existente: %s\n", token);
 
     return NULL;
 };
@@ -48,52 +42,78 @@ int main(int argsc, char** argsv){
     char input_buffer[256];
     char output_buffer[1024] = {0};
     
-    char delimiters[] = ",\n";
+    char delimiters[] = " ,\n";
 
     memset(input_buffer, '0', 256);
 
     while(fgets(input_buffer, sizeof input_buffer, f) != NULL){
-        printf("\n-----\nnew line: %s\n", input_buffer);
+        // printf("\n-----\nnew line: %s\n", input_buffer);
+
+        struct Instruction* instr = NULL;
         char* token = strtok(input_buffer, delimiters);
+        char word[64] = "";
+        strncat(word, token, strlen(token));
 
-    
-        while(token){
-            char word[64] = "";
-            printf("token 1: %s\n", token);
+        instr = get_instruction(word);
+
+        if(instr == NULL){
+            token = strtok(NULL, delimiters);
+            strncat(word, " ", 1);
             strncat(word, token, strlen(token));
-            printf("word 1: %s\n", word);
+            instr = get_instruction(word);
+        }
 
-            if(strncmp(token, "MOV", 3) == 0){
-                token = strtok(NULL, delimiters);
-                printf("token 2: %s\n", token);
-                strncat(word, ",", strlen(token));
-                strncat(word, token, strlen(token));
-            }
+        if(instr == NULL){
+            token = strtok(NULL, delimiters);
+            strncat(word, ",", 1);
+            strncat(word, token, strlen(token));
+            instr = get_instruction(word);
+        }
 
-            if(get_instruction_code(word) != NULL){
-                char* code = get_instruction_code(word);
+        if(instr == NULL) {
+            printf("Invalid token: %s\n", word);
+            exit(EXIT_FAILURE);
+        }
 
-                printf("+ instruction : %s\n", code);
 
-                strncat(output_buffer, code, strlen(code));
-            }else{
-                // char hex[3] = {0}; 
-                // format_hex(hex, word);
-                // printf("+ number : %s\n", hex);
+        strncat(output_buffer, instr->code, strlen(instr->code));
 
-                strncat(output_buffer, word, strlen(word));
-            }
+        if(instr->bytes == 2){
+            token = strtok(NULL, delimiters);
 
-            strncat(output_buffer, " " , strlen(token));
+            strncat(output_buffer, " ", 1);
+            strncat(output_buffer, token, strlen(token));
+        }
+
+
+        if(instr->bytes == 3){
+            token = strtok(NULL, delimiters);
+
+            strncat(output_buffer, " ", 1);
+            strncat(output_buffer, token, strlen(token));
 
             token = strtok(NULL, delimiters);
 
+            strncat(output_buffer, " ", 1);
+
+            if(token == NULL){
+                strncat(output_buffer, "00", 2);
+            }else{
+                strncat(output_buffer, token, strlen(token));
+            }
+          
         }
 
+        strncat(output_buffer, "\n", 1);
+
+        // printf("args: %d\n", instr->args);
+        // printf("bytes: %d\n", instr->bytes);
+        // printf("code: %s\n", instr->code);
+        // printf("mnemonic: %s\n", instr->mnemonic);
     }
     
     fclose(f);
 
-    printf("OUTPUT: %s\n", output_buffer);
+    printf("OUTPUT:\n%s\n", output_buffer);
     return 0;
 }
