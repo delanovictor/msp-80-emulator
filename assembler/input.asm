@@ -1,3 +1,0 @@
-MVI A,0x5
-MOV C,A 
-ADD C

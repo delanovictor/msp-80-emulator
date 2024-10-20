@@ -2,10 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 #include <sys/types.h>
-
-#include "instructions.c"
+#include "../common/instructions.c"
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte)  \
@@ -281,7 +279,7 @@ int main(int argc, char* argsv[]){
             break;
 
             default:
-                printf("\nInstruction %s (%#4x) not implemented\n", curr_instr.name, curr_instr.code);
+                printf("\nInstruction %s (%#4x) not implemented\n", curr_instr.mnemonic, curr_instr.code);
         }    
 
         //UPDATE FLAGS
@@ -340,7 +338,7 @@ end:
 }
 
 void print_instruction(struct Instruction inst){
-    printf("%s\n", inst.name);
+    printf("%s\n", inst.mnemonic);
     printf("%d - %d\n", inst.code, inst.type);
 }
 
@@ -391,7 +389,7 @@ void print_source_code(){
         if(arg_count == 0){
             struct Instruction inst = instruction_table[ram[i]];
 
-            printf("\n%s", inst.name);
+            printf("\n%s", inst.mnemonic);
             arg_count = inst.bytes - 1;
             
             if(inst.code == 0x76){
@@ -408,7 +406,7 @@ void print_source_code(){
 
 void print_source_code_line(int pc){
     struct Instruction inst = instruction_table[ram[pc]];
-    printf("%#4x - %s ", pc, inst.name);
+    printf("%#4x - %s ", pc, inst.mnemonic);
 
     int arg_count = inst.bytes - 1;
     for(int i = 0; i < arg_count; i++){
