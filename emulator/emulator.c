@@ -42,7 +42,7 @@ struct Register registers[REGISTER_COUNT] = {
 int pc = 0;
 int flags = 0b00000;
 
-void initialize_ram();
+void initialize_ram(FILE*);
 
 //TODO: unify
 void print_source_code_line(int);
@@ -54,14 +54,29 @@ void print_ram(int length);
 uint8_t ascii_to_hex(char c);
 
 int main(int argc, char* argsv[]){
+    char error_message[256] = {};
 
-    initialize_ram();
+    if(argc == 1){
+        fprintf(stderr, "Missing input file");
+        exit(EXIT_FAILURE);
+    }
+
+    char* input_file_path = argsv[1];
+
+    FILE* input_file = fopen(input_file_path, "r");
+
+    if(input_file == NULL){
+        sprintf(error_message,"Error opening input file %s", input_file_path);
+        perror(error_message);
+        exit(EXIT_FAILURE);
+    }
+
+    initialize_ram(input_file);
     
     print_ram(16);
     print_source_code();
     
     int arg_count = 0;
-
     struct Instruction curr_instr = {0};
     int affected_flags = 0;
     int affected_register = 0;
@@ -302,12 +317,8 @@ int main(int argc, char* argsv[]){
 
             for(uint8_t i = 0; i < sizeof(a)* 8; i++){
 
-                // printf("a: %d\n", a);
                 lsb = 0x01 & a;
                 count += lsb;
-
-                // printf("lsb: %d\n", lsb);
-                // printf("-------\n");
 
                 a = a >> 1;
             }
@@ -417,13 +428,8 @@ void print_source_code_line(int pc){
     printf("\n");
 }
 
-void initialize_ram(){
-    FILE *fp = fopen("./code_examples/fibonacci.hex", "r");
-
-    if(!fp){
-        exit(EXIT_FAILURE);
-    }
-
+void initialize_ram(FILE* fp){
+  
     int ram_index = 0;
     int i = 0;
     uint8_t word = 0;
