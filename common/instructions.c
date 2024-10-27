@@ -1,20 +1,22 @@
 #include <stdint.h>
 
-#define DEFAULT_FLAG_MASK 0b00000010
 
-#define SIGN_FLAG_MASK 0b10000000
+
+#define DEFAULT_FLAG_MASK 0x02 //0b0000 0010
+
+#define SIGN_FLAG_MASK 0x80 //1000 0000
 #define SIGN_FLAG_POS 7
 
-#define ZERO_FLAG_MASK 0b01000000
+#define ZERO_FLAG_MASK 0x40 //0100 0000
 #define ZERO_FLAG_POS 6
 
-#define AC_FLAG_MASK 0b00010000
+#define AC_FLAG_MASK 0x10 //0001 0000
 #define AC_FLAG_POS 4
 
-#define PARITY_FLAG_MASK 0b00000100
+#define PARITY_FLAG_MASK 0x04 //0000 0100
 #define PARITY_FLAG_POS 2
 
-#define CARRY_FLAG_MASK 0b00000001
+#define CARRY_FLAG_MASK 0x01 //0000 0001
 #define CARRY_FLAG_POS 0
 
 enum InstructionType {
@@ -2009,4 +2011,4 @@ struct Instruction instruction_table[] = {
      .arg_a = 7}};
 
 #define NUMBER_OF_INSTRUCTIONS                                                 \
-  sizeof instruction_table / sizeof instruction_table[0]
+  (int)(sizeof instruction_table / sizeof instruction_table[0])

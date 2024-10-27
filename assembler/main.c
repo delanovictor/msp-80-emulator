@@ -19,7 +19,7 @@ struct Instruction* get_instruction(char* token){
     // printf("Instrução não existente: %s\n", token);
 
     return NULL;
-};
+}
 
 void format_hex(int code, char* out){
     if(code < 16){
@@ -30,7 +30,7 @@ void format_hex(int code, char* out){
 }
 
 int main(int argsc, char** argsv){
-    char error_message[256] = {};
+    char error_message[512] = "";
     bool format = false;
 
     if(argsc == 1){
@@ -48,7 +48,7 @@ int main(int argsc, char** argsv){
     }
 
     FILE* output_file = stdout;
-    char output_file_path[256] = {};
+    char output_file_path[256] = "";
 
     for(int i = 2; i < argsc; i++){
         if(strncmp(argsv[i],"-format", 7) == 0){
@@ -106,7 +106,7 @@ int main(int argsc, char** argsv){
             exit(EXIT_FAILURE);
         }
 
-        char char_code[3] = {};
+        char char_code[3] = "";
         format_hex(instr->code, char_code);
         fprintf(output_file, "%s", char_code);
 
@@ -148,7 +148,6 @@ int main(int argsc, char** argsv){
         // printf("mnemonic: %s\n", instr->mnemonic);
     }
 
-cleanup:
     fclose(input_file);
     fclose(output_file);
 

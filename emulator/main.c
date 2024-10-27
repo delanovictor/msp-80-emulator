@@ -47,7 +47,6 @@ struct Register registers[REGISTER_COUNT] = {
 #define CARRY_FLAG_VALUE (((registers[REG_F].value & CARRY_FLAG_MASK) >> CARRY_FLAG_POS) & 0x1)
 
 int pc = 0;
-int flags = 0b00000;
 
 void initialize_ram(FILE*);
 
@@ -61,7 +60,7 @@ void print_ram(int length);
 uint8_t ascii_to_hex(char c);
 
 int main(int argc, char* argsv[]){
-    char error_message[256] = {};
+    char error_message[256];
 
     if(argc == 1){
         fprintf(stderr, "Missing input file");
@@ -87,7 +86,6 @@ int main(int argc, char* argsv[]){
 
     uint8_t affected_register = 0;
     uint8_t affected_flags = 0;
-    uint8_t overwrited_flags = registers[REG_F].value;
     bool default_flag_update = true;
     bool increment_pc = true;
 
@@ -428,7 +426,7 @@ int main(int argc, char* argsv[]){
             if(affected_flags & CARRY_FLAG_MASK){
                 uint8_t new_carry_flag_bit = (temp_buffer & 0x100) >> (8 - CARRY_FLAG_POS);
                 
-                if(curr_instr.type == SBB | curr_instr.type == SUB | curr_instr.type == SUI){
+                if((curr_instr.type == SBB) | (curr_instr.type == SUB) | (curr_instr.type == SUI)){
                     if(new_carry_flag_bit){
                         new_carry_flag_bit = 0;
                     }else{
