@@ -18,6 +18,7 @@
 
 
 #define RAM_SIZE 256 * 258 
+
 uint8_t ram[RAM_SIZE] = {0};
 
 #define REGISTER_COUNT 9
@@ -38,6 +39,12 @@ struct Register registers[REGISTER_COUNT] = {
     {.name="L"},
     {.name="M"},
 };
+
+#define SIGN_FLAG_VALUE (((registers[REG_F].value & SIGN_FLAG_MASK) >> SIGN_FLAG_POS) & 0x1)
+#define ZERO_FLAG_VALUE (((registers[REG_F].value & ZERO_FLAG_MASK) >> ZERO_FLAG_POS) & 0x1)
+#define AC_FLAG_VALUE (((registers[REG_F].value & AC_FLAG_MASK) >> AC_FLAG_POS) & 0x1)
+#define PARITY_FLAG_VALUE (((registers[REG_F].value & PARITY_FLAG_MASK) >> PARITY_FLAG_POS) & 0x1)
+#define CARRY_FLAG_VALUE (((registers[REG_F].value & CARRY_FLAG_MASK) >> CARRY_FLAG_POS) & 0x1)
 
 int pc = 0;
 int flags = 0b00000;
@@ -76,213 +83,293 @@ int main(int argc, char* argsv[]){
     print_ram(16);
     print_source_code();
     
-    int arg_count = 0;
     struct Instruction curr_instr = {0};
-    int affected_flags = 0;
-    int affected_register = 0;
-    int skip_pc_incr = 0;
-    int clk_cycles = 0;
 
-    printf("\n\nStart: \n\n");
+    uint8_t affected_register = 0;
+    uint8_t affected_flags = 0;
+    uint8_t overwrited_flags = registers[REG_F].value;
+    bool default_flag_update = true;
+    bool increment_pc = true;
+
+    int clk_cycles = 0;
+    
+    printf("EXECUTION: \n\n");
 
     while(1){
         print_source_code_line(pc);
         clk_cycles++;
+
         //DECODE
         uint8_t byte = ram[pc];
         curr_instr = instruction_table[byte];
-        affected_flags = instruction_flag_mask_table[curr_instr.type];
-        affected_register = REG_A;
-        
-        arg_count = curr_instr.bytes - 1;
 
-        long temp = 0;
+        affected_register = registers[REG_A].value;
+
+        affected_flags = instruction_flag_mask_table[curr_instr.type];
+
+        default_flag_update = true;
+
+        //Temp buffer used to perform operations. It helps perform the flag updates at the end of the execution.
+        long temp_buffer = 0;
 
         //EXECUTE
         switch(curr_instr.type){
 
             case MVI:
                 registers[curr_instr.arg_a].value = ram[pc + 1];
-                affected_register = curr_instr.arg_a;
+                affected_register = registers[curr_instr.arg_a].value;
             break;
 
             case MOV:
                 registers[curr_instr.arg_a].value = registers[curr_instr.arg_b].value;
-                affected_register = curr_instr.arg_a;
+                affected_register = registers[curr_instr.arg_a].value;
             break;
 
             case ADI:
-                temp = registers[REG_A].value + ram[pc + 1];
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value + ram[pc + 1];
+                registers[REG_A].value = temp_buffer;
+            break;
+
+            case ACI:
+                temp_buffer = registers[REG_A].value + (ram[pc + 1] + CARRY_FLAG_VALUE);
+
+                registers[REG_A].value = temp_buffer;
             break;
 
             case ADD:
-                temp = registers[REG_A].value + registers[curr_instr.arg_a].value;
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value + registers[curr_instr.arg_a].value;
+                registers[REG_A].value = temp_buffer;
+            break;
+
+            case ADC:
+                temp_buffer = registers[REG_A].value + registers[curr_instr.arg_a].value + CARRY_FLAG_VALUE;
+                registers[REG_A].value = temp_buffer;
             break;
 
             case SUI:
-                temp = registers[REG_A].value - ram[pc + 1];
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value - ram[pc + 1];
+
+                registers[REG_A].value = temp_buffer;
+            break;
+
+            case SBI:
+                temp_buffer = registers[REG_A].value - (ram[pc + 1] + CARRY_FLAG_VALUE);
+
+                registers[REG_A].value = temp_buffer;
             break;
 
             case SUB:
-                temp = registers[REG_A].value - registers[curr_instr.arg_a].value;
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value - registers[curr_instr.arg_a].value;
+
+                registers[REG_A].value = temp_buffer;
+            break;
+
+            case SBB:
+                temp_buffer = registers[REG_A].value - (registers[curr_instr.arg_a].value + CARRY_FLAG_VALUE);
+
+                registers[REG_A].value = temp_buffer;
             break;
 
             case ANI:
-                temp = registers[REG_A].value & ram[pc + 1];
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value & ram[pc + 1];
+                registers[REG_A].value = temp_buffer;
             break;
 
             case ANA:
-                temp = registers[REG_A].value & registers[curr_instr.arg_a].value;
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value & registers[curr_instr.arg_a].value;
+                registers[REG_A].value = temp_buffer;
             break;
 
             case ORI:
-                temp = registers[REG_A].value | ram[pc + 1];
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value | ram[pc + 1];
+                registers[REG_A].value = temp_buffer;
             break;
 
             case ORA:
-                temp = registers[REG_A].value | registers[curr_instr.arg_a].value;
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value | registers[curr_instr.arg_a].value;
+                registers[REG_A].value = temp_buffer;
             break;
 
             case XRI:
-                temp = registers[REG_A].value ^ ram[pc + 1];
-                registers[REG_A].value = temp;
+                temp_buffer = registers[REG_A].value ^ ram[pc + 1];
+                registers[REG_A].value = temp_buffer;
             break;
 
             case XRA:
-                temp = registers[REG_A].value ^ registers[curr_instr.arg_a].value;
-                registers[REG_A].value = temp;  
+                temp_buffer = registers[REG_A].value ^ registers[curr_instr.arg_a].value;
+                registers[REG_A].value = temp_buffer;  
             break;
 
             case INR:
                 registers[curr_instr.arg_a].value ++;
-                affected_register = curr_instr.arg_a;
+                affected_register = registers[curr_instr.arg_a].value;
             break;
 
             case DCR:
                 registers[curr_instr.arg_a].value --;
-                affected_register = curr_instr.arg_a;
+                affected_register = registers[curr_instr.arg_a].value;
             break;
 
             case CMA:
                 registers[REG_A].value = ~registers[REG_A].value;
             break;
 
+            case CMP:
+                temp_buffer = registers[REG_A].value - registers[curr_instr.arg_a].value;
+
+                affected_register = temp_buffer;
+            break;
+
+            case CPI:
+                temp_buffer = registers[REG_A].value - ram[pc + 1];
+
+                affected_register = temp_buffer;
+            break;
+
+            case RLC:
+                //MSB
+                temp_buffer = (registers[REG_A].value & 0x80);
+                //SHIFT
+                registers[REG_A].value = registers[REG_A].value << 1;
+                //ROTATE MSB TO START
+                registers[REG_A].value |= (temp_buffer >> 7);
+                
+                //COPY MSB TO CARRY
+                default_flag_update = false;
+                
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | (temp_buffer >> 7);
+
+            break;
+            case RRC:
+                //LSB
+                temp_buffer = (registers[REG_A].value & 0x01);
+                //SHIFT
+                registers[REG_A].value = registers[REG_A].value >> 1;
+                //ROTATE LSB TO END
+                registers[REG_A].value |= (temp_buffer << 7);
+               
+                //COPY LSB TO CARRY
+                default_flag_update = false;
+                
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | temp_buffer;
+            break;
             case RAL:
                 //MSB
-                temp = (registers[REG_A].value & 0x80);
+                temp_buffer = (registers[REG_A].value & 0x80);
                 //SHIFT
-                registers[REG_A].value = registers[curr_instr.arg_a].value << 1;
-                //CARRY MSB TO START
-                registers[REG_A].value |= (temp >> 7);
+                registers[REG_A].value = registers[REG_A].value << 1;
+                //ROTATE CARRY TO START
+                registers[REG_A].value |= CARRY_FLAG_VALUE;
 
-                // registers[REG_A].value = temp;  
+                //COPY MSB TO CARRY
+                default_flag_update = false;
+                
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | (temp_buffer >> 7);
             break;
 
             case RAR:
                 //LSB
-                temp = (registers[REG_A].value & 0x01);
+                temp_buffer = (registers[REG_A].value & 0x01);
                 //SHIFT
-                registers[REG_A].value = registers[curr_instr.arg_a].value >> 1;
-                //CARRY LSB TO END
-                registers[REG_A].value |= (temp << 7);
-
-                // registers[REG_A].value = temp;  
+                registers[REG_A].value = registers[REG_A].value >> 1;
+                //ROTATE CARRY TO START
+                registers[REG_A].value |= (CARRY_FLAG_VALUE << 7);
+                
+                //COPY LSB TO CARRY
+                default_flag_update = false;
+                
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | temp_buffer;
             break;
 
             case STA:
-                temp = (ram[pc + 2] << 8) | ram[pc + 1] ;
-                ram[temp] = registers[REG_A].value;
+                temp_buffer = (ram[pc + 2] << 8) | ram[pc + 1] ;
+                ram[temp_buffer] = registers[REG_A].value;
             break;
 
             case LDA:
-                temp = (ram[pc + 2] << 8) | ram[pc + 1] ;
-                registers[REG_A].value = ram[temp];
+                temp_buffer = (ram[pc + 2] << 8) | ram[pc + 1] ;
+                registers[REG_A].value = ram[temp_buffer];
             break;
 
             case JMP:
                 pc = ram[pc + 1];
-                skip_pc_incr = 1;
+                increment_pc = false;
             break;
 
             case JNZ:
-                temp = (ZERO_FLAG_MASK & registers[REG_F].value) >> ZERO_FLAG_POS;
-                
-                if(!temp){
+                if(!ZERO_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }   
-
             break;
 
             case JZ:
-                temp = (ZERO_FLAG_MASK & registers[REG_F].value) >> ZERO_FLAG_POS;
-                
-                if(temp){
+                if(ZERO_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
 
             case JNC:
-                temp = (CARRY_FLAG_MASK & registers[REG_F].value) >> CARRY_FLAG_POS;
-                
-                if(!temp){
+                if(!CARRY_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
             
             case JC:
-                temp = (CARRY_FLAG_MASK & registers[REG_F].value) >> CARRY_FLAG_POS;
-                
-                if(temp){
+                if(CARRY_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
             
             case JP:
-                temp = (SIGN_FLAG_MASK & registers[REG_F].value) >> SIGN_FLAG_POS;
-                
-                if(!temp){
+                if(!SIGN_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
 
             case JM:
-                temp = (SIGN_FLAG_MASK & registers[REG_F].value) >> SIGN_FLAG_POS;
-                
-                if(temp){
+                if(SIGN_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
 
             case JPO:
-                temp = (PARITY_FLAG_MASK & registers[REG_F].value) >> PARITY_FLAG_POS;
-                
-                if(!temp){
+                if(!PARITY_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
             break;
 
             case JPE:
-                temp = (PARITY_FLAG_MASK & registers[REG_F].value) >> PARITY_FLAG_POS;
+                temp_buffer = (PARITY_FLAG_MASK & registers[REG_F].value) >> PARITY_FLAG_POS;
                 
-                if(temp){
+                if(PARITY_FLAG_VALUE){
                     pc = ram[pc + 1];
-                    skip_pc_incr = 1;
+                    increment_pc = false;
                 }
+            break;
+
+            case STC:
+                default_flag_update = false;
+
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 1 << CARRY_FLAG_POS;
+
+                break;
+            break;
+            case CMC:
+                default_flag_update = false;
+
+                if(CARRY_FLAG_VALUE){
+                    registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 0 << CARRY_FLAG_POS;
+                }else{
+                    registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 1 << CARRY_FLAG_POS;
+                }
+                break;
             break;
 
             case NOP:
@@ -297,47 +384,85 @@ int main(int argc, char* argsv[]){
                 printf("\nInstruction %s (%#4x) not implemented\n", curr_instr.mnemonic, curr_instr.code);
         }    
 
-        //UPDATE FLAGS
-        if(affected_flags & SIGN_FLAG_MASK){
-            registers[REG_F].value |= (SIGN_FLAG_MASK & ((registers[affected_register].value & 0b1000000) ? 0xFF : 0x00) );
-        }
+        if(default_flag_update){
+            //UPDATE FLAGS
+            if(affected_flags & SIGN_FLAG_MASK){
+                uint8_t sign = (affected_register & 0x80) >> 7;
+                uint8_t new_sign_flag_bit = sign << SIGN_FLAG_POS;
 
-        if(affected_flags & ZERO_FLAG_MASK){
-            registers[REG_F].value |= (ZERO_FLAG_MASK & ((registers[affected_register].value == 0) ? 0xFF : 0x00) );
-        }
-
-        if(affected_flags & AC_FLAG_MASK){
-
-        }
-
-        if(affected_flags & PARITY_FLAG_MASK){
-            uint8_t a = registers[affected_register].value;
-            uint8_t count = 0;
-            uint8_t lsb = 0;
-
-            for(uint8_t i = 0; i < sizeof(a)* 8; i++){
-
-                lsb = 0x01 & a;
-                count += lsb;
-
-                a = a >> 1;
+                registers[REG_F].value = (registers[REG_F].value & ~(SIGN_FLAG_MASK)) | new_sign_flag_bit;
             }
 
-            uint8_t parity = (count % 2 == 0);
+            if(affected_flags & ZERO_FLAG_MASK){
+                // printf("Afetou ZERO\n");
+                uint8_t new_zero_flag_bit = (affected_register == 0) << ZERO_FLAG_POS;
 
-            registers[REG_F].value |= (PARITY_FLAG_MASK & (parity ? 0xFF : 0x00) );
-        }
+                registers[REG_F].value = (registers[REG_F].value & ~(ZERO_FLAG_MASK)) | new_zero_flag_bit;
+            }
 
-        if(affected_flags & CARRY_FLAG_MASK){
-            registers[REG_F].value |= (CARRY_FLAG_MASK & ((temp & 0x100) ? 0xFF : 0x00) );
+            if(affected_flags & AC_FLAG_MASK){
+                // printf("Afetou AC\n");
+            }
+
+            if(affected_flags & PARITY_FLAG_MASK){
+                // printf("Afetou PARITY\n");
+                uint8_t a = affected_register;
+                uint8_t count = 0;
+                uint8_t lsb = 0;
+
+                for(uint8_t i = 0; i < sizeof(a)* 8; i++){
+
+                    lsb = 0x01 & a;
+                    count += lsb;
+
+                    a = a >> 1;
+                }
+
+                uint8_t parity = (count % 2 == 0);
+
+                uint8_t new_parity_flag_bit = parity << PARITY_FLAG_POS;
+
+                registers[REG_F].value = (registers[REG_F].value & ~(PARITY_FLAG_MASK)) | new_parity_flag_bit;
+            }
+
+            if(affected_flags & CARRY_FLAG_MASK){
+                uint8_t new_carry_flag_bit = (temp_buffer & 0x100) >> (8 - CARRY_FLAG_POS);
+                
+                if(curr_instr.type == SBB | curr_instr.type == SUB | curr_instr.type == SUI){
+                    if(new_carry_flag_bit){
+                        new_carry_flag_bit = 0;
+                    }else{
+                        new_carry_flag_bit = 1;
+                    }
+                }
+
+                // if(curr_instr.type == CMP){
+                //     printf("é um CMP\n");
+                //     if((registers[REG_A].value & 0x80) != (registers[curr_instr.arg_a].value & 0x80)){
+                //         printf("sinais diferentes\n");
+                //         printf("bit era %d", new_carry_flag_bit);
+                //         if(new_carry_flag_bit){
+                //             new_carry_flag_bit = 0;
+                //         }else{
+                //             new_carry_flag_bit = 1;
+                //         }
+                //         printf(" virou %d\n", new_carry_flag_bit);
+                //     }else{
+                //         printf("sinais iguais\n");
+                //     }
+                // } 
+                
+                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | new_carry_flag_bit;
+            }
         }
     
-        // print_registers();
+    
+        print_registers();
 
-        if(skip_pc_incr == 1){
-            skip_pc_incr = 0;
-        }else{
+        if(increment_pc){
             pc += curr_instr.bytes;
+        }else{
+            increment_pc = true;
         }
     }
 
@@ -350,11 +475,12 @@ end:
 
 void print_instruction(struct Instruction inst){
     printf("%s\n", inst.mnemonic);
-    printf("%d - %d\n", inst.code, inst.type);
+    printf("Code: %d / %0#2X\n", inst.code, inst.code);
+    printf("Type: %d\n", inst.type);
 }
 
 void print_flags(){
-    char flag_symbol[] = {'S', 'Z', '0', 'A', '0' , 'P', '1', 'C'};
+    char flag_symbol[] = {'C', '1', 'P', '0', 'A' , '0', 'Z', 'S'};
 
     printf("Flags: ( ");
     for(int i = 7; i >= 0; i--){
@@ -388,6 +514,9 @@ void print_registers(){
 }
 
 void print_ram(int length){
+    printf("=================================\n");
+    printf("RAM DUMP: \n");
+
     for(int i = 0; i < length; i++){
         printf("%#04x: %#04x\n", i, ram[i]);
     }
@@ -395,7 +524,7 @@ void print_ram(int length){
 
 void print_source_code(){
     printf("=================================\n");
-
+    printf("SOURCE CODE:\n");
     for(int i = 0, arg_count = 0; i < 16; i++){
         if(arg_count == 0){
             struct Instruction inst = instruction_table[ram[i]];
@@ -407,22 +536,27 @@ void print_source_code(){
                 break;
             }
         }else{
-            printf(" %#04x", ram[i]);
+            printf(" %2X", ram[i]);
             arg_count--;
         }
     }
 
-    printf("=================================\n");
+    printf("\n=================================\n");
 }
 
 void print_source_code_line(int pc){
     struct Instruction inst = instruction_table[ram[pc]];
-    printf("%#4x - %s ", pc, inst.mnemonic);
+    if(pc == 0){
+        printf(" 0x0 - %s ",  inst.mnemonic);
+    }else{
+        printf("%#4x - %s ", pc, inst.mnemonic);
+    }
+
 
     int arg_count = inst.bytes - 1;
     for(int i = 0; i < arg_count; i++){
         int next_pc = pc + i + 1;
-        printf("%#4x",next_pc, ram[next_pc]);
+        printf("%2X", ram[next_pc]);
     }       
 
     printf("\n");
