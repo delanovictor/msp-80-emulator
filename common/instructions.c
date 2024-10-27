@@ -1,8 +1,6 @@
 #include <stdint.h>
 
-
-
-#define DEFAULT_FLAG_MASK 0x02 //0b0000 0010
+#define DEFAULT_FLAG_MASK 0x02 //0000 0010
 
 #define SIGN_FLAG_MASK 0x80 //1000 0000
 #define SIGN_FLAG_POS 7

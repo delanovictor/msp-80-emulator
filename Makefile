@@ -10,6 +10,6 @@ emulator:
 	emulator/main ./examples/$(input).hex
 
 assembler:
-	assembler/main ./examples/$(input).asm
+	assembler/main ./examples/$(input).asm -o ./examples/$(input).hex
 
 .PHONY: emulator assembler run

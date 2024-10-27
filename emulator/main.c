@@ -55,7 +55,9 @@ void print_source_code_line(int);
 void print_source_code();
 void print_instruction(struct Instruction);
 void print_registers();
-void print_ram(int length);
+void print_flags();
+void print_ram(uint16_t start, uint16_t length);
+void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t flag_value);
 
 uint8_t ascii_to_hex(char c);
 
@@ -79,7 +81,7 @@ int main(int argc, char* argsv[]){
 
     initialize_ram(input_file);
     
-    print_ram(16);
+    print_ram(0, 16);
     print_source_code();
     
     struct Instruction curr_instr = {0};
@@ -234,9 +236,7 @@ int main(int argc, char* argsv[]){
                 
                 //COPY MSB TO CARRY
                 default_flag_update = false;
-                
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | (temp_buffer >> 7);
-
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, temp_buffer >> 7);
             break;
             case RRC:
                 //LSB
@@ -248,8 +248,7 @@ int main(int argc, char* argsv[]){
                
                 //COPY LSB TO CARRY
                 default_flag_update = false;
-                
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | temp_buffer;
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, temp_buffer);
             break;
             case RAL:
                 //MSB
@@ -261,8 +260,7 @@ int main(int argc, char* argsv[]){
 
                 //COPY MSB TO CARRY
                 default_flag_update = false;
-                
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | (temp_buffer >> 7);
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, temp_buffer >> 7);
             break;
 
             case RAR:
@@ -275,8 +273,7 @@ int main(int argc, char* argsv[]){
                 
                 //COPY LSB TO CARRY
                 default_flag_update = false;
-                
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | temp_buffer;
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, temp_buffer);
             break;
 
             case STA:
@@ -354,21 +351,86 @@ int main(int argc, char* argsv[]){
 
             case STC:
                 default_flag_update = false;
-
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 1 << CARRY_FLAG_POS;
-
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, 1);
                 break;
             break;
             case CMC:
                 default_flag_update = false;
-
-                if(CARRY_FLAG_VALUE){
-                    registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 0 << CARRY_FLAG_POS;
-                }else{
-                    registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | 1 << CARRY_FLAG_POS;
-                }
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, !CARRY_FLAG_VALUE);
                 break;
             break;
+
+            case DAD:
+                //Build data from register pair
+                temp_buffer = (registers[curr_instr.arg_a].value << 8) | (registers[curr_instr.arg_a + 1].value);
+
+                temp_buffer += ((registers[REG_H].value << 8) | (registers[REG_L].value));
+
+                registers[REG_H].value = (temp_buffer & 0xFF00) >> 8;
+                registers[REG_L].value = (temp_buffer & 0x00FF);
+
+                default_flag_update = false;
+
+                if(temp_buffer > 0xFFFF || temp_buffer < 0){
+                    set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, 1);
+                }else{
+                    set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, 1);
+                }
+                
+            break;
+
+            case STAX:
+                //Build address from register pair
+                temp_buffer = (registers[curr_instr.arg_a].value << 8) | (registers[curr_instr.arg_a + 1].value);
+                
+                // printf("STAX Address: %ld - %4lx\n", temp_buffer, temp_buffer);
+
+                //Store the accumator at the target address
+                ram[temp_buffer] = registers[REG_A].value;
+            break;
+
+            case LDAX:
+                //Build address from register pair
+                temp_buffer = (registers[curr_instr.arg_a].value << 8) | (registers[curr_instr.arg_a + 1].value);
+                
+                // printf("LDAX Address: %ld - %4lx\n", temp_buffer, temp_buffer);
+
+                //Store the accumator at the target address
+                registers[REG_A].value = ram[temp_buffer];
+            break;
+
+            case INX:
+                if(curr_instr.arg_a == SP){
+
+                }else{
+                    registers[curr_instr.arg_a + 1].value++;
+
+                    if(registers[curr_instr.arg_a + 1].value == 0x00){
+                        registers[curr_instr.arg_a].value++;
+                    }
+                }
+            break;
+
+            case DCX:
+                if(curr_instr.arg_a == SP){
+
+                }else{
+                    registers[curr_instr.arg_a + 1].value--;
+
+                    if(registers[curr_instr.arg_a + 1].value == 0xFF){
+                        registers[curr_instr.arg_a].value--;
+                    }
+                }
+            break;
+
+            // case SHLD:
+            //     // ram[curr_instr.arg_a]
+
+            // break;
+
+            // case LHLD:
+
+            // break;
 
             case NOP:
 
@@ -379,23 +441,20 @@ int main(int argc, char* argsv[]){
             break;
 
             default:
-                printf("\nInstruction %s (%#4x) not implemented\n", curr_instr.mnemonic, curr_instr.code);
+                printf("\nInstruction %s (%#2x) not implemented\n", curr_instr.mnemonic, curr_instr.code);
         }    
 
         if(default_flag_update){
             //UPDATE FLAGS
             if(affected_flags & SIGN_FLAG_MASK){
                 uint8_t sign = (affected_register & 0x80) >> 7;
-                uint8_t new_sign_flag_bit = sign << SIGN_FLAG_POS;
 
-                registers[REG_F].value = (registers[REG_F].value & ~(SIGN_FLAG_MASK)) | new_sign_flag_bit;
+                set_flag_bit(SIGN_FLAG_MASK, SIGN_FLAG_POS, sign);
             }
 
             if(affected_flags & ZERO_FLAG_MASK){
                 // printf("Afetou ZERO\n");
-                uint8_t new_zero_flag_bit = (affected_register == 0) << ZERO_FLAG_POS;
-
-                registers[REG_F].value = (registers[REG_F].value & ~(ZERO_FLAG_MASK)) | new_zero_flag_bit;
+                set_flag_bit(ZERO_FLAG_MASK, ZERO_FLAG_POS, (affected_register == 0));
             }
 
             if(affected_flags & AC_FLAG_MASK){
@@ -418,9 +477,7 @@ int main(int argc, char* argsv[]){
 
                 uint8_t parity = (count % 2 == 0);
 
-                uint8_t new_parity_flag_bit = parity << PARITY_FLAG_POS;
-
-                registers[REG_F].value = (registers[REG_F].value & ~(PARITY_FLAG_MASK)) | new_parity_flag_bit;
+                set_flag_bit(PARITY_FLAG_MASK, PARITY_FLAG_POS, parity);
             }
 
             if(affected_flags & CARRY_FLAG_MASK){
@@ -449,8 +506,8 @@ int main(int argc, char* argsv[]){
                 //         printf("sinais iguais\n");
                 //     }
                 // } 
-                
-                registers[REG_F].value = (registers[REG_F].value & ~(CARRY_FLAG_MASK)) | new_carry_flag_bit;
+
+                set_flag_bit(CARRY_FLAG_MASK, CARRY_FLAG_POS, new_carry_flag_bit);
             }
         }
     
@@ -466,10 +523,21 @@ int main(int argc, char* argsv[]){
 
 end:
     // print_source_code();
+    print_ram(0x3FFA, 0x4005);
     print_registers();
     printf("Clock Cycles: %d\n", clk_cycles);
     return 0;
 }
+
+
+void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t value){
+    if(value){
+        registers[REG_F].value = (registers[REG_F].value & ~(flag_mask)) | 1 << flag_pos;
+    }else{
+        registers[REG_F].value = (registers[REG_F].value & ~(flag_mask)) | 0 << flag_pos;
+    }
+}
+
 
 void print_instruction(struct Instruction inst){
     printf("%s\n", inst.mnemonic);
@@ -511,11 +579,11 @@ void print_registers(){
     printf("=====================\n");
 }
 
-void print_ram(int length){
+void print_ram(uint16_t start, uint16_t length){
     printf("=================================\n");
     printf("RAM DUMP: \n");
 
-    for(int i = 0; i < length; i++){
+    for(int i = start; i < length; i++){
         printf("%#04x: %#04x\n", i, ram[i]);
     }
 }
