@@ -34,19 +34,21 @@ struct Register registers[REGISTER_COUNT] = {
     {.name="C"},
     {.name="D"},
     {.name="E"},
-    {.name="F"},
     {.name="H"},
     {.name="L"},
     {.name="M"},
+    {.name="PSW"},
 };
 
-#define SIGN_FLAG_VALUE (((registers[REG_F].value & SIGN_FLAG_MASK) >> SIGN_FLAG_POS) & 0x1)
-#define ZERO_FLAG_VALUE (((registers[REG_F].value & ZERO_FLAG_MASK) >> ZERO_FLAG_POS) & 0x1)
-#define AC_FLAG_VALUE (((registers[REG_F].value & AC_FLAG_MASK) >> AC_FLAG_POS) & 0x1)
-#define PARITY_FLAG_VALUE (((registers[REG_F].value & PARITY_FLAG_MASK) >> PARITY_FLAG_POS) & 0x1)
-#define CARRY_FLAG_VALUE (((registers[REG_F].value & CARRY_FLAG_MASK) >> CARRY_FLAG_POS) & 0x1)
+#define SIGN_FLAG_VALUE (((registers[REG_PSW].value & SIGN_FLAG_MASK) >> SIGN_FLAG_POS) & 0x1)
+#define ZERO_FLAG_VALUE (((registers[REG_PSW].value & ZERO_FLAG_MASK) >> ZERO_FLAG_POS) & 0x1)
+#define AC_FLAG_VALUE (((registers[REG_PSW].value & AC_FLAG_MASK) >> AC_FLAG_POS) & 0x1)
+#define PARITY_FLAG_VALUE (((registers[REG_PSW].value & PARITY_FLAG_MASK) >> PARITY_FLAG_POS) & 0x1)
+#define CARRY_FLAG_VALUE (((registers[REG_PSW].value & CARRY_FLAG_MASK) >> CARRY_FLAG_POS) & 0x1)
 
-int pc = 0;
+uint16_t pc = 0;
+uint16_t sp = 0x5000;
+
 
 void initialize_ram(FILE*);
 
@@ -55,6 +57,7 @@ void print_source_code_line(int);
 void print_source_code();
 void print_instruction(struct Instruction);
 void print_registers();
+void print_stack(uint16_t before, uint16_t after);
 void print_flags();
 void print_ram(uint16_t start, uint16_t length);
 void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t flag_value);
@@ -341,7 +344,7 @@ int main(int argc, char* argsv[]){
             break;
 
             case JPE:
-                temp_buffer = (PARITY_FLAG_MASK & registers[REG_F].value) >> PARITY_FLAG_POS;
+                temp_buffer = (PARITY_FLAG_MASK & registers[REG_PSW].value) >> PARITY_FLAG_POS;
                 
                 if(PARITY_FLAG_VALUE){
                     pc = ram[pc + 1];
@@ -362,7 +365,11 @@ int main(int argc, char* argsv[]){
 
             case DAD:
                 //Build data from register pair
-                temp_buffer = (registers[curr_instr.arg_a].value << 8) | (registers[curr_instr.arg_a + 1].value);
+                if(curr_instr.arg_a == SP){
+                    temp_buffer = sp;
+                }else{
+                    temp_buffer = (registers[curr_instr.arg_a].value << 8) | (registers[curr_instr.arg_a + 1].value);
+                }
 
                 temp_buffer += ((registers[REG_H].value << 8) | (registers[REG_L].value));
 
@@ -401,7 +408,7 @@ int main(int argc, char* argsv[]){
 
             case INX:
                 if(curr_instr.arg_a == SP){
-
+                    sp++;
                 }else{
                     registers[curr_instr.arg_a + 1].value++;
 
@@ -413,7 +420,7 @@ int main(int argc, char* argsv[]){
 
             case DCX:
                 if(curr_instr.arg_a == SP){
-
+                    sp--;
                 }else{
                     registers[curr_instr.arg_a + 1].value--;
 
@@ -423,14 +430,57 @@ int main(int argc, char* argsv[]){
                 }
             break;
 
-            // case SHLD:
-            //     // ram[curr_instr.arg_a]
+            case LXI:
+                if(curr_instr.arg_a == SP){
+                    sp = (ram[pc+1] << 8) | ram[pc+2];
+                }else{
+                    registers[curr_instr.arg_a].value = ram[pc+1];
+                    registers[curr_instr.arg_a + 1].value = ram[pc+2];
+                }
+            break;
 
-            // break;
+            case SHLD:
+                //Build address from args
+                temp_buffer = (ram[pc + 1] << 8) | (ram[pc+2]);
+                ram[temp_buffer] = registers[REG_L].value;
+                ram[temp_buffer + 1] = registers[REG_H].value;
+            break;
 
-            // case LHLD:
+            case LHLD:
+                //Build address from args
+                temp_buffer = (ram[pc + 1] << 8) | (ram[pc+2]);
+                registers[REG_L].value = ram[temp_buffer];
+                registers[REG_H].value = ram[temp_buffer + 1];
+            break;
 
-            // break;
+            case PUSH:
+                if(curr_instr.arg_a == REG_PSW){
+                    ram[sp - 1] = registers[REG_A].value;
+                    ram[sp - 2] = registers[REG_PSW].value;
+                }else{
+                    ram[sp - 1] = registers[curr_instr.arg_a].value;
+                    ram[sp - 2] = registers[curr_instr.arg_a + 1].value;
+                }
+
+                sp = sp - 2;
+
+                // print_stack(4, 4);
+            break;
+
+            case POP:
+                if(curr_instr.arg_a == REG_PSW){
+                    registers[REG_PSW].value = ram[sp];
+                    registers[REG_A].value = ram[sp + 1];
+                    default_flag_update = false;
+                }else{
+                    registers[curr_instr.arg_a + 1].value = ram[sp];
+                    registers[curr_instr.arg_a].value = ram[sp + 1];
+                }
+
+                sp = sp + 2;
+
+                // print_stack(4, 4);
+            break;
 
             case NOP:
 
@@ -514,6 +564,7 @@ int main(int argc, char* argsv[]){
     
         print_registers();
 
+
         if(increment_pc){
             pc += curr_instr.bytes;
         }else{
@@ -524,6 +575,7 @@ int main(int argc, char* argsv[]){
 end:
     // print_source_code();
     print_ram(0x3FFA, 0x4005);
+    print_stack(4, 4);
     print_registers();
     printf("Clock Cycles: %d\n", clk_cycles);
     return 0;
@@ -532,9 +584,9 @@ end:
 
 void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t value){
     if(value){
-        registers[REG_F].value = (registers[REG_F].value & ~(flag_mask)) | 1 << flag_pos;
+        registers[REG_PSW].value = (registers[REG_PSW].value & ~(flag_mask)) | 1 << flag_pos;
     }else{
-        registers[REG_F].value = (registers[REG_F].value & ~(flag_mask)) | 0 << flag_pos;
+        registers[REG_PSW].value = (registers[REG_PSW].value & ~(flag_mask)) | 0 << flag_pos;
     }
 }
 
@@ -543,6 +595,14 @@ void print_instruction(struct Instruction inst){
     printf("%s\n", inst.mnemonic);
     printf("Code: %d / %0#2X\n", inst.code, inst.code);
     printf("Type: %d\n", inst.type);
+   
+    printf("Type: %d\n", inst.type);
+    // if(inst.bytes > 1){
+    //     printf("Arg A: %d\n", inst.arg_a);
+    // }
+    // if(inst.bytes > 2){
+    //     printf("Arg B: %d\n", inst.arg_b);
+    // }
 }
 
 void print_flags(){
@@ -554,7 +614,7 @@ void print_flags(){
         int mask = 1 << i;
         // printf("mask: %d\n", mask);
 
-        int bit = (registers[REG_F].value & mask) >> i;
+        int bit = (registers[REG_PSW].value & mask) >> i;
         // printf("bit: %d\n", bit);
 
         if(bit){
@@ -586,7 +646,27 @@ void print_ram(uint16_t start, uint16_t length){
     for(int i = start; i < length; i++){
         printf("%#04x: %#04x\n", i, ram[i]);
     }
+    printf("=================================\n");
+
 }
+
+void print_stack(uint16_t before, uint16_t after){
+    printf("=================================\n");
+    printf("STACK DUMP: \n");
+
+    for(int i = sp - before; i < sp + after + 1; i++){
+      
+        printf("%#04x: %#04x", i, ram[i]);
+
+        if(i == sp){
+            printf(" <= SP");
+        }
+
+        printf("\n");
+    }
+    printf("=================================\n");
+}
+
 
 void print_source_code(){
     printf("=================================\n");

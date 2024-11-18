@@ -133,6 +133,7 @@ int main(int argsc, char** argsv){
             }else{
                 fprintf(output_file, "%s", token);
             }
+
           
         }
 
