@@ -1,4 +1,4 @@
-MVI A,0C
+MVI A,0A
 MOV C,A
 DCR C
 MVI A,01
