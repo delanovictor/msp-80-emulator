@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <sys/types.h>
@@ -40,43 +41,73 @@ struct ExecutionResult {
 #define PARITY_FLAG_VALUE (((registers[REG_PSW].value & PARITY_FLAG_MASK) >> PARITY_FLAG_POS) & 0x1)
 #define CARRY_FLAG_VALUE (((registers[REG_PSW].value & CARRY_FLAG_MASK) >> CARRY_FLAG_POS) & 0x1)
 
-#define WINDOW_WIDHT 600
-#define WINDOW_HEIGHT 600
-
-void initialize_ram(FILE*);
-
-//TODO: unify
-
-// TERMINAL MODE
-void print_source_code_line(int);
-void print_source_code();
-void print_instruction(struct Instruction);
-void print_registers();
-void print_stack(uint16_t before, uint16_t after);
-void print_flags();
-void print_ram(uint16_t start, uint16_t length);
 
 
 // RAYLIB MODE
 
-#define Y_POS_LINE(line_number) (line_number * 30) + 10
+
+#define WINDOW_WIDHT 800
+#define WINDOW_HEIGHT 800
+#define WINDOW_PADDING 10
+
+#define FONT_SIZE 25
+#define TITLE_COLOR WHITE
+#define TEXT_COLOR RAYWHITE
+#define BACKGROUND_COLOR DARKGRAY
+
+#define LINE_HEIGHT 30
+#define LINE_Y_POS(line_number) (line_number * LINE_HEIGHT) + WINDOW_PADDING
+#define COL_X_POS(col_number) (int)(col_number * (WINDOW_WIDHT / 3)) + WINDOW_PADDING;
+
+#define CLOCK_INTERVAL 1
+
+Font font;
+
 void draw_registers();
 void draw_ram(uint16_t start, uint16_t length);
-void draw_stack(uint16_t before, uint16_t after);
+void draw_stack(uint16_t start, uint16_t length);
+void draw_source_code_line(uint16_t address);
+void draw_source_code(uint8_t start, uint8_t length);
+void draw_counters();
+void draw_all();
 
+void DrawTextB(const char *text, int posX, int posY, int fontSize, Color color);
+Vector2 MeasureTextB(const char *text);
 
 // LOGIC
+void initialize_ram(char*);
+void handle_clock_cycle();
 struct ExecutionResult execute(struct Instruction curr_instr);
 void update_flags(struct Instruction curr_instr, struct ExecutionResult execution_result);
 void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t flag_value);
+void get_flag_string(char *text_buffer);
+void clear_state();
 
 uint8_t ascii_to_hex(char c);
 
 // =============== GLOBAL STATE ===============
+#define STACK_START 0x5000
 
 uint16_t pc = 0;
-uint16_t sp = 0x5000;
+uint16_t sp = STACK_START;
+uint32_t clk_cycles = 0;
 uint8_t ram[RAM_SIZE] = {0};
+
+enum MachineMode {
+    MANUAL,
+    AUTO_RUN
+};
+
+enum MachineMode machine_mode = MANUAL;
+
+
+enum MachineState {
+    RUNNING,
+    HALTED
+};
+
+enum MachineState machine_state = RUNNING;
+
 
 struct Register registers[REGISTER_COUNT] = {
     {.name="A"},
@@ -92,7 +123,6 @@ struct Register registers[REGISTER_COUNT] = {
 
 
 int main(int argc, char* argsv[]){
-    char error_message[256];
 
     if(argc == 1){
         fprintf(stderr, "Missing input file");
@@ -101,30 +131,26 @@ int main(int argc, char* argsv[]){
 
     char* input_file_path = argsv[1];
 
-    FILE* input_file = fopen(input_file_path, "r");
-
-    if(input_file == NULL){
-        sprintf(error_message,"Error opening input file %s", input_file_path);
-        perror(error_message);
-        exit(EXIT_FAILURE);
-    }
-
-    initialize_ram(input_file);
-    
-    print_ram(0, 16);
-    print_source_code();
-
-    int clk_cycles = 0;
+    initialize_ram(input_file_path);
     
     printf("EXECUTION: \n\n");
 
     InitWindow(WINDOW_WIDHT,WINDOW_HEIGHT,"MSP-80 EMULATOR");
 
+    font = LoadFont("fonts/DroidSansMono.ttf");
+
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
     BeginDrawing();
-    ClearBackground(RAYWHITE);
+
+        ClearBackground(BACKGROUND_COLOR);
+
+        draw_all();
+        
     EndDrawing();
 
+    float last_clock_ts = 0;
+    float clock_interval = 1.0;
+    
     while(!WindowShouldClose()){
         //----------------------------------------------------------------------------------
         // Draw
@@ -132,65 +158,96 @@ int main(int argc, char* argsv[]){
 
         BeginDrawing();
 
+    
+        if(IsKeyPressed(KEY_Q)){
+            printf("Quit!\n");
+            break;
+        }
 
-        if(IsKeyPressed(KEY_SPACE)){
+        if(IsKeyPressed(KEY_R)){
+      
+            clear_state();
 
-            ClearBackground(RAYWHITE);
+            initialize_ram(input_file_path);
 
-            char text_buffer[100] = "";
+            printf("Reset!\n");
+        }
 
-            sprintf(text_buffer, "Cycle: %d", clk_cycles);
+        if(IsKeyPressed(KEY_A)){
+            printf("Toggle Auto Run!\n");
 
-            DrawText(text_buffer, 10, Y_POS_LINE(0), 20, DARKGRAY);
-            
-            sprintf(text_buffer, "PC: %d", pc);
-            
-            DrawText(text_buffer, 10, Y_POS_LINE(1), 20, DARKGRAY);
+            if(machine_mode == AUTO_RUN){
+                machine_mode = MANUAL;
+            }else{
+                machine_mode = AUTO_RUN;
+            }
+        }
 
-            draw_ram(pc, pc + 10);
-            print_source_code_line(pc);
+        if(IsKeyPressed(KEY_W)){
+            clock_interval -= (clock_interval * 0.1);
+            printf("increase frequency: %f Hz\n", 1/clock_interval);
+        }
 
-            clk_cycles++;
+        if(IsKeyPressed(KEY_S)){
+            clock_interval += (clock_interval * 0.1);
+            printf("decrease frequency: %f Hz\n", 1/clock_interval);
+        }
 
-            // FETCH & DECODE
-            uint8_t byte = ram[pc];
-
-            struct Instruction curr_instr = instruction_table[byte];
-
-            // EXECUTE
-            if(curr_instr.type == HLT){
-                goto end;
+        if(machine_state == RUNNING){
+            if(IsKeyPressed(KEY_SPACE) && machine_mode == MANUAL){
+                printf("Manual Clock!\n");
+                handle_clock_cycle();
             }
 
-            struct ExecutionResult execution_result = execute(curr_instr);
-            
-            if(execution_result.default_flag_update){
-                update_flags(curr_instr, execution_result);
-            }
-        
-            print_registers();
+            if(machine_mode == AUTO_RUN){
 
-            draw_registers();
+                last_clock_ts += GetFrameTime();
+                if(last_clock_ts > clock_interval){
+                    printf("Auto Clock!\n");
+                    last_clock_ts = 0;
+                    handle_clock_cycle();
+                }
 
-            if(execution_result.increment_pc){
-                pc += curr_instr.bytes;
             }
-            
         }
         
+        
+        ClearBackground(BACKGROUND_COLOR);
+            
+        draw_all();
+
         EndDrawing();
 
     }
 
     CloseWindow();
 
-end:
-    // print_source_code();
-    print_ram(0x3FFA, 0x4005);
-    print_stack(4, 4);
-    print_registers();
-    printf("Clock Cycles: %d\n", clk_cycles);
     return 0;
+}
+
+void handle_clock_cycle(){
+    // FETCH & DECODE
+    uint8_t byte = ram[pc];
+
+    struct Instruction curr_instr = instruction_table[byte];
+
+    // EXECUTE
+    clk_cycles++;
+
+    if(curr_instr.type == HLT){
+        machine_state = HALTED;
+        return;
+    }
+
+    struct ExecutionResult execution_result = execute(curr_instr);
+    
+    if(execution_result.default_flag_update){
+        update_flags(curr_instr, execution_result);
+    }
+
+    if(execution_result.increment_pc){
+        pc += curr_instr.bytes;
+    }
 }
 
 struct ExecutionResult execute(struct Instruction curr_instr){
@@ -686,8 +743,6 @@ struct ExecutionResult execute(struct Instruction curr_instr){
             // Jump to subroutine
             pc = aux_buffer;
 
-            print_stack(4, 4);
-
         break;
 
         case RZ:
@@ -768,6 +823,19 @@ struct ExecutionResult execute(struct Instruction curr_instr){
     return execution_result;
 }
 
+void clear_state(){
+    pc = 0;
+    sp = STACK_START;
+    clk_cycles = 0;
+    machine_state = RUNNING;
+    machine_mode = MANUAL;
+
+    for(uint8_t i = 0; i < REGISTER_COUNT; i++){
+        registers[i].value = 0;
+    }
+
+    memset(ram, 0, sizeof(ram));
+}
 
 void update_flags(struct Instruction curr_instr, struct ExecutionResult execution_result){
     uint8_t affected_flags = 0;
@@ -840,7 +908,6 @@ void update_flags(struct Instruction curr_instr, struct ExecutionResult executio
     }
 }
 
-
 void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t value){
     if(value){
         registers[REG_PSW].value = (registers[REG_PSW].value & ~(flag_mask)) | 1 << flag_pos;
@@ -849,32 +916,69 @@ void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t value){
     }
 }
 
+void draw_all(){
+    draw_registers();
+
+    draw_ram(pc, pc + 10);
+
+    draw_counters();
+
+    draw_source_code(0, 16);
+
+    draw_stack((sp - 4), 10);
+}
 
 void draw_registers(){
+    int base_pos_x = COL_X_POS(2);
+    int start_line = 3;
+
+    DrawTextB("REGISTERS:", base_pos_x, LINE_Y_POS((start_line)), FONT_SIZE, TITLE_COLOR);
 
     char text_buffer[100] = "";
 
     for(int i = 0; i < REGISTER_COUNT; i++){
+        int line = start_line + 1 + i;
+
         sprintf(text_buffer, "%s:", registers[i].name);
 
-        DrawText(text_buffer, WINDOW_WIDHT - 250, Y_POS_LINE(i), 20, DARKGRAY);
-    }
-
-    for(int i = 0; i < REGISTER_COUNT; i++){
+        DrawTextB(text_buffer, base_pos_x, LINE_Y_POS(line), FONT_SIZE, TEXT_COLOR);
+   
         sprintf(text_buffer, "%d", registers[i].value);
 
-        DrawText(text_buffer, WINDOW_WIDHT - 175, Y_POS_LINE(i), 20, DARKGRAY);    
-    }
+        DrawTextB(text_buffer, base_pos_x + 60, LINE_Y_POS(line), FONT_SIZE, TEXT_COLOR);    
 
-    for(int i = 0; i < REGISTER_COUNT; i++){
         sprintf(text_buffer, "("BYTE_TO_BINARY_PATTERN")\n",  BYTE_TO_BINARY(registers[i].value));
 
-        DrawText(text_buffer, WINDOW_WIDHT - 125, Y_POS_LINE(i), 20, DARKGRAY);    
+        DrawTextB(text_buffer, base_pos_x + 110, LINE_Y_POS(line), FONT_SIZE, TEXT_COLOR);    
     }
+}
 
+void draw_stack(uint16_t start, uint16_t length){
+    int base_pos_x = COL_X_POS(2);
+
+    char text_buffer[100] = "";
+    
+    int start_line = 14;
+
+    int end = start + length;
+    
+    DrawTextB("STACK:", base_pos_x, LINE_Y_POS((start_line)), FONT_SIZE, TITLE_COLOR);
+
+    for(int i = start, j = (start_line + 1); i < end; i++, j++){
+        sprintf(text_buffer, "%04x:  %02x", i, ram[i]);
+
+        DrawTextB(text_buffer, base_pos_x, LINE_Y_POS(j), FONT_SIZE, TEXT_COLOR);
+
+        if(sp == i){
+            DrawCircle(base_pos_x + 150, LINE_Y_POS(j) + 10, 5, TEXT_COLOR);
+        }
+
+        // DrawLine(10, LINE_Y_POS(j), 100, LINE_Y_POS(j), TEXT_COLOR);
+    }
 }
 
 void draw_ram(uint16_t start, uint16_t length){
+    int base_pos_x = COL_X_POS(1);
 
     char text_buffer[100] = "";
     
@@ -886,60 +990,123 @@ void draw_ram(uint16_t start, uint16_t length){
     // }
 
     int start_line = 3;
-    int end_line = start_line + length;
+    // int end_line = start_line + length;
 
-    for(int i = start, j = start_line; i < length; i++, j++){
-        sprintf(text_buffer, "%04x ", i);
+    DrawTextB("RAM:", base_pos_x, LINE_Y_POS((start_line)), FONT_SIZE, TITLE_COLOR);
 
-        DrawText(text_buffer, 10, Y_POS_LINE(j), 20, DARKGRAY);
+    for(int i = start, j = start_line + 1; i < length; i++, j++){
+        sprintf(text_buffer, "%04x: %02x", i, ram[i]);
 
-        if(cursor_line == i){
-            DrawCircle(70, Y_POS_LINE(j) + 10, 5, DARKGRAY);
-        }
-        // DrawLine(10, Y_POS_LINE(j), 100, Y_POS_LINE(j), DARKGRAY);
+        DrawTextB(text_buffer, base_pos_x, LINE_Y_POS(j), FONT_SIZE, TEXT_COLOR);
+
+        // if(cursor_line == i){
+        //     DrawCircle(base_pos_x + 130, LINE_Y_POS(j) + 10, 5, TEXT_COLOR);
+        // }
+        // DrawLine(10, LINE_Y_POS(j), 100, LINE_Y_POS(j), TEXT_COLOR);
     }
 
-    // DrawLine(60, Y_POS_LINE(start_line), 60, Y_POS_LINE(end_line), DARKGRAY);
+    // DrawLine(60, LINE_Y_POS(start_line), 60, LINE_Y_POS(end_line), TEXT_COLOR);
 
     // for(int i = start; i < length; i++){
     //     sprintf(text_buffer, "%d", registers[i].value);
 
-    //     DrawText(text_buffer, WINDOW_WIDHT - 175, Y_POS_LINE(i), 20, DARKGRAY);    
+    //     DrawTextB(text_buffer, WINDOW_WIDHT - 175, LINE_Y_POS(i), 20, TEXT_COLOR);    
     // }
 
     // for(int i = start; i < length; i++){
     //     sprintf(text_buffer, "("BYTE_TO_BINARY_PATTERN")\n",  BYTE_TO_BINARY(registers[i].value));
 
-    //     DrawText(text_buffer, WINDOW_WIDHT - 125, Y_POS_LINE(i), 20, DARKGRAY);    
-    // }
-
-    // printf("=================================\n");
-    // printf("RAM DUMP: \n");
-
-    // for(int i = start; i < length; i++){
-    //     printf("%#04x: %#04x\n", i, ram[i]);
-    // }
-    // printf("=================================\n");
-}
-
-void print_instruction(struct Instruction inst){
-    printf("%s\n", inst.mnemonic);
-    printf("Code: %d / %0#2X\n", inst.code, inst.code);
-    printf("Type: %d\n", inst.type);
-   
-    printf("Type: %d\n", inst.type);
-    // if(inst.bytes > 1){
-    //     printf("Arg A: %d\n", inst.arg_a);
-    // }
-    // if(inst.bytes > 2){
-    //     printf("Arg B: %d\n", inst.arg_b);
+    //     DrawTextB(text_buffer, WINDOW_WIDHT - 125, LINE_Y_POS(i), 20, TEXT_COLOR);    
     // }
 }
 
-void print_flags(){
-    char flag_symbol[] = {'C', '1', 'P', '0', 'A' , '0', 'Z', 'S'};
+void draw_source_code(uint8_t start, uint8_t length){
+    int base_pos_x = COL_X_POS(0);
+    int start_line = 3;
+    int end = start + length;
 
-    printf("Flags: ( ");
+    DrawTextB("SOURCE CODE:", base_pos_x, LINE_Y_POS((start_line)), FONT_SIZE, TITLE_COLOR);
+
+    char text_buffer[100] = "";
+    
+    for(int i = start, arg_count = 0, instruction_count = 0; instruction_count < end; i++){
+
+
+        if(arg_count == 0){
+            struct Instruction inst = instruction_table[ram[i]];
+
+            instruction_count++;
+            sprintf(text_buffer, "%04x: %s", i, inst.mnemonic);
+
+            // printf("\n%s", inst.mnemonic);
+
+            arg_count = inst.bytes - 1;
+            
+            if(pc == i){
+                int pos_y = LINE_Y_POS((instruction_count + start_line));
+                DrawCircle(base_pos_x + 230, pos_y + 10, 5, TEXT_COLOR);
+            }
+
+        }else{
+            char arg_buffer[10] = "";
+
+            sprintf(arg_buffer, " %2X", ram[i]);
+
+            strncat(text_buffer, arg_buffer, strlen(arg_buffer));
+ 
+            arg_count--;
+        }
+
+        if(arg_count == 0){
+            int pos_y = LINE_Y_POS((instruction_count + start_line));
+            DrawTextB(text_buffer, base_pos_x, pos_y, FONT_SIZE, TEXT_COLOR);
+        }
+    }
+}
+
+void draw_counters(){
+    char text_buffer[100] = "";
+    int offset_x = WINDOW_PADDING;
+    int spacing = (int)(WINDOW_WIDHT / 5);
+
+    // ======= Cycles =======
+    sprintf(text_buffer, "Cycle: %d", clk_cycles);
+
+    DrawTextB(text_buffer, offset_x, LINE_Y_POS(0), FONT_SIZE, TITLE_COLOR);
+    
+    // ======= PC =======
+
+    offset_x += MeasureTextB(text_buffer).x + spacing;
+
+    sprintf(text_buffer, "PC: %#04x", pc);
+    
+    DrawTextB(text_buffer, offset_x , LINE_Y_POS(0), FONT_SIZE, TITLE_COLOR);
+
+    // ======= SP =======
+
+    offset_x += MeasureTextB(text_buffer).x + spacing;
+
+    sprintf(text_buffer, "SP: %#04x", sp);
+
+    DrawTextB(text_buffer, offset_x, LINE_Y_POS(0), FONT_SIZE, TITLE_COLOR);
+
+    // ======= Flags =======
+
+    offset_x = WINDOW_PADDING;
+
+    //Empty buffer
+    strcpy(text_buffer, "");
+
+    get_flag_string((char*)text_buffer);
+
+    DrawTextB(text_buffer, offset_x, LINE_Y_POS(1), FONT_SIZE, TITLE_COLOR);
+}
+
+void get_flag_string(char *text_buffer){
+    char *flag_symbol[] = {"C", "1", "P", "0", "A" , "0", "Z", "S"};
+
+    strcat(text_buffer, "Flags: ( ");
+
     for(int i = 7; i >= 0; i--){
         
         int mask = 1 << i;
@@ -949,98 +1116,26 @@ void print_flags(){
         // printf("bit: %d\n", bit);
 
         if(bit){
-            printf("%c", flag_symbol[i]);
+            strncat(text_buffer, flag_symbol[i], 1);
         }else{
-            printf("_");
+            strcat(text_buffer, "_");
         }
-
-        printf(" ");
+        strcat(text_buffer, " ");
     }
-    printf(")\n");
+    strcat(text_buffer, ")");
 }
 
-
-
-void print_registers(){
-    printf("\n=====================\n");
-
-    for(int i = 0; i < REGISTER_COUNT; i++){
-        printf("%s: %d ("BYTE_TO_BINARY_PATTERN")\n", registers[i].name, registers[i].value, BYTE_TO_BINARY(registers[i].value));
-    }
-    print_flags();
-
-    printf("=====================\n");
-}
-
-void print_ram(uint16_t start, uint16_t length){
-    printf("=================================\n");
-    printf("RAM DUMP: \n");
-
-    for(int i = start; i < length; i++){
-        printf("%#04x: %#04x\n", i, ram[i]);
-    }
-    printf("=================================\n");
-}
-
-void print_stack(uint16_t before, uint16_t after){
-    printf("=================================\n");
-    printf("STACK DUMP: \n");
-
-    for(int i = sp - before; i < sp + after + 1; i++){
-      
-        printf("%#04x: %#04x", i, ram[i]);
-
-        if(i == sp){
-            printf(" <= SP");
-        }
-
-        printf("\n");
-    }
-    printf("=================================\n");
-}
-
-void print_source_code(){
-    printf("=================================\n");
-    printf("SOURCE CODE:\n");
-    for(int i = 0, arg_count = 0; i < 16; i++){
-        if(arg_count == 0){
-            struct Instruction inst = instruction_table[ram[i]];
-
-            printf("\n%s", inst.mnemonic);
-            arg_count = inst.bytes - 1;
-            
-            if(inst.code == 0x76){
-                break;
-            }
-        }else{
-            printf(" %2X", ram[i]);
-            arg_count--;
-        }
-    }
-
-    printf("\n=================================\n");
-}
-
-void print_source_code_line(int pc){
-    struct Instruction inst = instruction_table[ram[pc]];
-    if(pc == 0){
-        printf(" 0x0 - %s ",  inst.mnemonic);
-    }else{
-        printf("%#4x - %s ", pc, inst.mnemonic);
-    }
-
-
-    int arg_count = inst.bytes - 1;
-    for(int i = 0; i < arg_count; i++){
-        int next_pc = pc + i + 1;
-        printf("%2X", ram[next_pc]);
-    }       
-
-    printf("\n");
-}
-
-void initialize_ram(FILE* fp){
+void initialize_ram(char* input_file_path){
+    char error_message[256];
   
+    FILE* fp = fopen(input_file_path, "r");
+
+    if(fp == NULL){
+        sprintf(error_message,"Error opening input file %s", input_file_path);
+        perror(error_message);
+        exit(EXIT_FAILURE);
+    }
+
     int ram_index = 0;
     int i = 0;
     uint8_t word = 0;
@@ -1093,4 +1188,13 @@ uint8_t ascii_to_hex(char c){
     }
 
     return 0;
+}
+
+void DrawTextB(const char *text, int posX, int posY, int fontSize, Color color)
+{
+    DrawTextEx(font, text, (Vector2){ posX, posY }, fontSize, 1, color);
+}
+
+Vector2 MeasureTextB(const char *text){
+    return MeasureTextEx(font, text, FONT_SIZE, 1);
 }
