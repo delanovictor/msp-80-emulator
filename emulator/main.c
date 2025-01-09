@@ -46,8 +46,8 @@ struct ExecutionResult {
 // RAYLIB MODE
 
 
-#define WINDOW_WIDHT 800
-#define WINDOW_HEIGHT 800
+#define WINDOW_WIDHT 1000
+#define WINDOW_HEIGHT 1000
 #define WINDOW_PADDING 10
 
 #define FONT_SIZE 25
@@ -57,7 +57,7 @@ struct ExecutionResult {
 
 #define LINE_HEIGHT 30
 #define LINE_Y_POS(line_number) (line_number * LINE_HEIGHT) + WINDOW_PADDING
-#define COL_X_POS(col_number) (int)(col_number * (WINDOW_WIDHT / 3)) + WINDOW_PADDING;
+#define COL_X_POS(col_number) (int)(col_number * (WINDOW_WIDHT / 10)) + WINDOW_PADDING;
 
 #define CLOCK_INTERVAL 1
 
@@ -69,8 +69,9 @@ void draw_stack(uint16_t start, uint16_t length);
 void draw_source_code_line(uint16_t address);
 void draw_source_code(uint8_t start, uint8_t length);
 void draw_counters();
+void draw_controls();
 void draw_all();
-
+void draw_button(char* label, Rectangle rectangle);
 void DrawTextB(const char *text, int posX, int posY, int fontSize, Color color);
 Vector2 MeasureTextB(const char *text);
 
@@ -919,17 +920,58 @@ void set_flag_bit(uint8_t flag_mask, uint8_t flag_pos, uint8_t value){
 void draw_all(){
     draw_registers();
 
-    draw_ram(pc, pc + 10);
+    draw_ram(pc, pc + 16);
 
     draw_counters();
 
     draw_source_code(0, 16);
 
     draw_stack((sp - 4), 10);
+
+    draw_controls();
+}
+
+void draw_button(char* label, Rectangle rect){
+    DrawRectangleLinesEx(rect, 2, TITLE_COLOR); 
+    DrawTextB(label, rect.x, rect.y + 5, FONT_SIZE, TITLE_COLOR);
+}
+
+void draw_controls(){
+    int base_pos_x = COL_X_POS(8);
+    int start_line = 3;
+
+    int base_pos_y = LINE_Y_POS(start_line);
+
+    DrawTextB("CONTROLS:", base_pos_x, base_pos_y, FONT_SIZE, TITLE_COLOR);
+
+    Rectangle restart_rect = {
+	.x= base_pos_x,
+	.y= base_pos_y + 50,
+	.width= 100,
+	.height= 40
+    };
+    draw_button("RESTART", restart_rect);
+    
+     
+    Vector2 mouse_pos = GetMousePosition();
+    bool restart_action = false;
+
+    if(CheckCollisionPointRec(mouse_pos, restart_rect)){
+	    if(IsMouseButtonReleased(MOUSE_BUTTON_LEFT)){
+	    	restart_action = true;
+	    }
+    }
+
+    if(restart_action){
+	clear_state();
+    	restart_action = false;
+    }
+
+    //draw_button("AUTO RUN", base_pos_x, base_pos_y + 100);
 }
 
 void draw_registers(){
-    int base_pos_x = COL_X_POS(2);
+    int base_pos_x = COL_X_POS(5);
     int start_line = 3;
 
     DrawTextB("REGISTERS:", base_pos_x, LINE_Y_POS((start_line)), FONT_SIZE, TITLE_COLOR);
@@ -954,7 +996,7 @@ void draw_registers(){
 }
 
 void draw_stack(uint16_t start, uint16_t length){
-    int base_pos_x = COL_X_POS(2);
+    int base_pos_x = COL_X_POS(5);
 
     char text_buffer[100] = "";
     
@@ -978,7 +1020,7 @@ void draw_stack(uint16_t start, uint16_t length){
 }
 
 void draw_ram(uint16_t start, uint16_t length){
-    int base_pos_x = COL_X_POS(1);
+    int base_pos_x = COL_X_POS(3);
 
     char text_buffer[100] = "";
     
